@@ -55,6 +55,7 @@ import io.mifos.provisioner.api.v1.domain.*;
 import io.mifos.reporting.api.v1.client.ReportManager;
 import io.mifos.rhythm.api.v1.client.RhythmManager;
 import io.mifos.rhythm.api.v1.events.BeatEvent;
+import io.mifos.sync.api.v1.client.SyncManager;
 import io.mifos.teller.api.v1.client.TellerManager;
 import org.cassandraunit.utils.EmbeddedCassandraServerHelper;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
@@ -84,6 +85,7 @@ import java.util.concurrent.TimeUnit;
 import static io.mifos.accounting.api.v1.EventConstants.POST_ACCOUNT;
 import static io.mifos.accounting.api.v1.EventConstants.POST_LEDGER;
 
+
 @SuppressWarnings("SpringAutowiredFieldsWarningInspection")
 @RunWith(SpringRunner.class)
 @SpringBootTest()
@@ -106,6 +108,7 @@ public class ServiceRunner {
   private static Microservice<ReportManager> reportManager;
   private static Microservice<ChequeManager> chequeManager;
   private static Microservice<PayrollManager> payrollManager;
+  private static Microservice<SyncManager> syncManager;
 
 
   private static DB embeddedMariaDb;
@@ -115,7 +118,7 @@ public class ServiceRunner {
   @Configuration
   @ActiveMQForTest.EnableActiveMQListen
   @EnableApiFactory
-  @EnableEventRecording(maxWait = 60_000)
+  @EnableEventRecording(maxWait = 10_000)
   @ComponentScan("io.mifos.dev.listener")
   public static class TestConfiguration {
     public TestConfiguration() {
@@ -231,6 +234,9 @@ public class ServiceRunner {
 
     ServiceRunner.payrollManager = new Microservice<>(PayrollManager.class, "payroll", "0.1.0-BUILD-SNAPSHOT", ServiceRunner.INTEGRATION_TEST_ENVIRONMENT);
     startService(generalProperties, ServiceRunner.payrollManager);
+
+    ServiceRunner.syncManager = new Microservice<>(SyncManager.class, "sync", "0.1.0-BUILD-SNAPSHOT", ServiceRunner.INTEGRATION_TEST_ENVIRONMENT);
+    startService(generalProperties, ServiceRunner.syncManager);
   }
 
   @After
@@ -246,6 +252,7 @@ public class ServiceRunner {
     ServiceRunner.customerManager.kill();
     ServiceRunner.organizationManager.kill();
     ServiceRunner.identityManager.kill();
+    ServiceRunner.syncManager.kill();
 
     if (!isPersistent) {
       ServiceRunner.embeddedMariaDb.stop();
@@ -276,6 +283,7 @@ public class ServiceRunner {
     System.out.println("Reporting Service: " + ServiceRunner.reportManager.getProcessEnvironment().serverURI());
     System.out.println("Cheque Service: " + ServiceRunner.chequeManager.getProcessEnvironment().serverURI());
     System.out.println("Payroll Service: " + ServiceRunner.payrollManager.getProcessEnvironment().serverURI());
+    System.out.println("Sync Service: " + ServiceRunner.syncManager.getProcessEnvironment().serverURI());
 
     boolean run = true;
 
@@ -296,7 +304,7 @@ public class ServiceRunner {
     logger.info("Service '{}' started and {} with Eureka.", microservice.name(), registered ? "registered" : "not registered");
     microservice.setApiFactory(this.apiFactory);
 
-    TimeUnit.SECONDS.sleep(20); //Give it some extra time before the next service...
+    TimeUnit.SECONDS.sleep(10); //Give it some extra time before the next service...
   }
 
   private void migrateServices() {
@@ -338,7 +346,8 @@ public class ServiceRunner {
             ApplicationBuilder.create(ServiceRunner.tellerManager.name(), ServiceRunner.tellerManager.uri()),
             ApplicationBuilder.create(ServiceRunner.reportManager.name(), ServiceRunner.reportManager.uri()),
             ApplicationBuilder.create(ServiceRunner.chequeManager.name(), ServiceRunner.chequeManager.uri()),
-            ApplicationBuilder.create(ServiceRunner.payrollManager.name(), ServiceRunner.payrollManager.uri())
+            ApplicationBuilder.create(ServiceRunner.payrollManager.name(), ServiceRunner.payrollManager.uri()),
+            ApplicationBuilder.create(ServiceRunner.syncManager.name(), ServiceRunner.syncManager.uri())
     );
 
     final List<Tenant> tenantsToCreate = Arrays.asList(
@@ -440,6 +449,8 @@ public class ServiceRunner {
       provisionApp(tenant, ServiceRunner.chequeManager, io.mifos.cheque.api.v1.EventConstants.INITIALIZE);
 
       provisionApp(tenant, ServiceRunner.payrollManager, io.mifos.payroll.api.v1.EventConstants.INITIALIZE);
+
+      provisionApp(tenant, ServiceRunner.syncManager, io.mifos.sync.api.v1.events.EventConstants.INITIALIZE);
 
       final UserWithPassword orgAdminUserPassword = createOrgAdminRoleAndUser(tenantAdminPassword.getAdminPassword());
 
